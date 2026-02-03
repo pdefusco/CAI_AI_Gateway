@@ -78,6 +78,11 @@ async def forward_to_cloudera(url: str, payload: dict, token: str):
 # Model endpoint
 # -------------------------------------------------------------------
 
+@app.post("/ping")
+async def ping():
+    logger.info("Ping endpoint hit")
+    return {"ok": True}
+
 @app.post("/inference")
 async def inference(request: Request):
     """
