@@ -138,9 +138,12 @@ async def inference(request: Request):
 # Uvicorn entry point
 # -------------------------------------------------------------------
 
-def run_server():
-    print("Running on port: ", os.environ["CDSW_APP_PORT"])
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ['CDSW_APP_PORT']), log_level="info", reload=False)
-
-server_thread = threading.Thread(target=run_server)
-server_thread.start()
+if __name__ == "__main__":
+    print("Running on port:", os.environ["CDSW_APP_PORT"])
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=int(os.environ["CDSW_APP_PORT"]),
+        log_level="info",
+        reload=False,
+    )
