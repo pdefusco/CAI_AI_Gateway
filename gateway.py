@@ -16,11 +16,6 @@ MODEL_B_TOKEN = os.getenv("MODEL_B_TOKEN")
 MODEL_A_URL = os.getenv("MODEL_A_URL")
 MODEL_B_URL = os.getenv("MODEL_B_URL")
 
-HEADERS = {
-    "Authorization": f"Bearer {CLOUDERA_TOKEN}",
-    "Content-Type": "application/json",
-}
-
 # -------------------------------------------------------------------
 # Shared forwarding logic (gateway core)
 # -------------------------------------------------------------------
