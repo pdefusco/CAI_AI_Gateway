@@ -138,7 +138,7 @@ async def inference(request: Request):
 # Uvicorn entry point
 # -------------------------------------------------------------------
 
-if __name__ == "__main__":
+'''if __name__ == "__main__":
     print("Running on port:", os.environ["CDSW_APP_PORT"])
     uvicorn.run(
         "gateway:app",
@@ -146,4 +146,4 @@ if __name__ == "__main__":
         port=int(os.environ["CDSW_APP_PORT"]),
         log_level="info",
         reload=False,
-    )
+    )'''
