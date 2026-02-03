@@ -22,6 +22,10 @@ Launch a CAI Session with PBJ Python 3.10 runtime and install requirements.
 pip3 install -r requirements.txt
 ```
 
+Deploy the application with the ```gateway.py``` script.
+
+![alt text](img/gateway-photo.png)
+
 ## Usage
 
 Open a CAI Session and from the terminal send the following requests.
