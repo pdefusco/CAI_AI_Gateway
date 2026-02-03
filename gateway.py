@@ -3,6 +3,22 @@ import httpx
 import os
 import uvicorn
 import threading
+import logging
+
+
+# -------------------------------------------------------------------
+# Configure logging
+# -------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,  # INFO shows requests; DEBUG shows more details
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("trylon_gateway")
+
+# -------------------------------------------------------------------
+# FastAPI app
+# -------------------------------------------------------------------
 
 app = FastAPI(title="Trylon AI Gateway")
 
@@ -26,6 +42,8 @@ async def forward_to_cloudera(url: str, payload: dict, token: str):
         "Content-Type": "application/json",
     }
 
+    logger.info(f"Forwarding request to Cloudera model at {url}")
+
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -34,17 +52,20 @@ async def forward_to_cloudera(url: str, payload: dict, token: str):
                 headers=HEADERS
             )
     except httpx.RequestError as exc:
+        logger.error(f"Cloudera request failed: {exc}")
         raise HTTPException(
             status_code=502,
             detail=f"Cloudera request failed: {exc}"
         )
 
     if response.status_code != 200:
+        logger.error(f"Cloudera returned error {response.status_code}: {response.text}")
         raise HTTPException(
             status_code=response.status_code,
             detail=response.text
         )
 
+    logger.info(f"Cloudera response successful (status {response.status_code})")
     return response.json()
 
 # -------------------------------------------------------------------
@@ -62,12 +83,18 @@ async def inference(request: Request):
     """
     payload = await request.json()
 
+    logger.info(f"Incoming request:\n{json.dumps(payload, indent=2)}")
+
+    print("Incoming request:", json.dumps(payload, indent=2))
+
     model_name = payload.get("model_name")
     if not model_name:
+        logger.warning("Missing 'model_name' in request")
         raise HTTPException(status_code=400, detail="Missing 'model_name' field")
 
     model_info = MODELS.get(model_name)
     if not model_info:
+        logger.warning(f"Unknown model requested: {model_name}")
         raise HTTPException(status_code=400, detail=f"Unknown model: {model_name}")
 
     # Remove 'model_name' before sending to Cloudera if not needed
