@@ -115,7 +115,7 @@ async def ping():
 
 @app.post("/inference")
 def inference(request: Request):
-    payload = request.json()
+    payload = await request.json()
     logger.info(f"Incoming request:\n{json.dumps(payload, indent=2)}")
     print("Incoming request:", json.dumps(payload, indent=2))
 
