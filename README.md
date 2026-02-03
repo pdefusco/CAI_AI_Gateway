@@ -3,7 +3,7 @@
 ## Usage
 
 ```
-curl -X POST https://ai.ml-fadd6e9b-75f.pdf-feb.a465-9q4k.cloudera.site//inference \
+curl -X POST https://ai.ml-fadd6e9b-75f.pdf-feb.a465-9q4k.cloudera.site/inference \
   -H "Content-Type: application/json" \
   -d '{
         "model_name": "model-b",
