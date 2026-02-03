@@ -114,8 +114,8 @@ async def ping():
 
 
 @app.post("/inference")
-async def inference(request: Request):
-    payload = await request.json()
+def inference(request: Request):
+    payload = request.json()
     logger.info(f"Incoming request:\n{json.dumps(payload, indent=2)}")
     print("Incoming request:", json.dumps(payload, indent=2))
 
@@ -132,7 +132,7 @@ async def inference(request: Request):
     # Remove 'model_name' before sending to the model
     payload.pop("model_name")
 
-    return await forward_to_cloudera(
+    return forward_to_cloudera(
         model_id=model_info["model_id"],
         base_url=model_info["url"],
         token=model_info["token"],
