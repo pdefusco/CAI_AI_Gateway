@@ -3,6 +3,7 @@ import httpx
 import os
 import uvicorn
 import threading
+import json
 
 # -------------------------------------------------------------------
 # Configure logging
@@ -26,7 +27,7 @@ logger.propagate = False  # prevent duplicate logs
 # FastAPI app
 # -------------------------------------------------------------------
 
-app = FastAPI(title="Trylon AI Gateway")
+app = FastAPI()
 
 # -------------------------------------------------------------------
 # Configuration
@@ -55,7 +56,7 @@ async def forward_to_cloudera(url: str, payload: dict, token: str):
             response = await client.post(
                 url,
                 json=payload,
-                headers=HEADERS
+                headers=headers
             )
     except httpx.RequestError as exc:
         logger.error(f"Cloudera request failed: {exc}")
@@ -78,10 +79,27 @@ async def forward_to_cloudera(url: str, payload: dict, token: str):
 # Model endpoint
 # -------------------------------------------------------------------
 
-@app.post("/ping")
+MODELS = {
+    "model-a": {
+        "url": MODEL_A_URL,
+        "token": MODEL_A_TOKEN,
+    },
+    "model-b": {
+        "url": MODEL_B_URL,
+        "token": MODEL_B_TOKEN,
+    },
+}
+
+@app.get("/")
+async def root():
+    return {"status": "ok"}
+
+
+@app.get("/ping")
 async def ping():
     logger.info("Ping endpoint hit")
     return {"ok": True}
+
 
 @app.post("/inference")
 async def inference(request: Request):
@@ -122,7 +140,7 @@ async def inference(request: Request):
 
 def run_server():
     print("Running on port: ", os.environ["CDSW_APP_PORT"])
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ['CDSW_APP_PORT']), log_level="info", reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ['CDSW_APP_PORT']), log_level="info", reload=False)
 
 server_thread = threading.Thread(target=run_server)
 server_thread.start()
