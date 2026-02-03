@@ -3,18 +3,24 @@ import httpx
 import os
 import uvicorn
 import threading
-import logging
-
 
 # -------------------------------------------------------------------
 # Configure logging
 # -------------------------------------------------------------------
 
-logging.basicConfig(
-    level=logging.INFO,  # INFO shows requests; DEBUG shows more details
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+import logging
+import sys
+
 logger = logging.getLogger("trylon_gateway")
+logger.setLevel(logging.INFO)
+
+# Create handler to stdout
+handler = logging.StreamHandler(sys.stdout)
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.propagate = False  # prevent duplicate logs
+
 
 # -------------------------------------------------------------------
 # FastAPI app
@@ -110,7 +116,7 @@ async def inference(request: Request):
 # -------------------------------------------------------------------
 
 def run_server():
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ['CDSW_APP_PORT']), log_level="warning", reload=False)
+    uvicorn.run(app, host="127.0.0.1", port=int(os.environ['CDSW_APP_PORT']), log_level="info", reload=True)
 
 server_thread = threading.Thread(target=run_server)
 server_thread.start()
