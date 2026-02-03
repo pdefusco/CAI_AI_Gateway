@@ -5,6 +5,7 @@ import uvicorn
 import threading
 import json
 from langchain_openai import ChatOpenAI
+from langchain.schema import HumanMessage
 
 # -------------------------------------------------------------------
 # Configure logging
