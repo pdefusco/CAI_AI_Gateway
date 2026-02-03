@@ -36,6 +36,9 @@ app = FastAPI()
 MODEL_A_TOKEN = os.getenv("MODEL_A_TOKEN")
 MODEL_B_TOKEN = os.getenv("MODEL_B_TOKEN")
 
+MODEL_A_ID = os.getenv("MODEL_A_ID") #nvidia/llama-3.3-nemotron-super-49b-v1
+MODEL_B_ID = os.getenv("MODEL_B_ID") #defog/llama-3-sqlcoder-8b
+
 MODEL_A_URL = os.getenv("MODEL_A_URL")
 MODEL_B_URL = os.getenv("MODEL_B_URL")
 
@@ -43,52 +46,59 @@ MODEL_B_URL = os.getenv("MODEL_B_URL")
 # Shared forwarding logic (gateway core)
 # -------------------------------------------------------------------
 
-async def forward_to_cloudera(url: str, payload: dict, token: str):
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
+# -------------------------------------------------------------------
+# Shared forwarding logic using LangChain
+# -------------------------------------------------------------------
 
-    logger.info(f"Forwarding request to Cloudera model at {url}")
+async def forward_to_cloudera(model_id: str, base_url: str, token: str, payload: dict):
+    """
+    Forward request to the chosen Cloudera AI model using LangChain's ChatOpenAI wrapper.
+    Uses per-model base_url.
+    """
+    logger.info(f"Forwarding request to Cloudera model '{model_id}' at '{base_url}'")
+
+    user_input = payload.get("inputs")
+    if not user_input:
+        logger.warning("Missing 'inputs' in payload")
+        raise HTTPException(status_code=400, detail="Missing 'inputs' field")
+
+    # Instantiate the LLM with the correct base_url for this model
+    llm = ChatOpenAI(
+        model=model_id,
+        api_key=token,
+        base_url=base_url,
+        temperature=0.0,
+    )
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                url,
-                json=payload,
-                headers=headers
-            )
-    except httpx.RequestError as exc:
-        logger.error(f"Cloudera request failed: {exc}")
-        raise HTTPException(
-            status_code=502,
-            detail=f"Cloudera request failed: {exc}"
-        )
-
-    if response.status_code != 200:
-        logger.error(f"Cloudera returned error {response.status_code}: {response.text}")
-        raise HTTPException(
-            status_code=response.status_code,
-            detail=response.text
-        )
-
-    logger.info(f"Cloudera response successful (status {response.status_code})")
-    return response.json()
+        response = llm([HumanMessage(content=user_input)])
+        output = response.content
+        logger.info(f"Received response from model '{model_id}'")
+        return {"output": output}
+    except Exception as e:
+        logger.error(f"Error calling model '{model_id}': {e}")
+        raise HTTPException(status_code=502, detail=str(e))
 
 # -------------------------------------------------------------------
-# Model endpoint
+# MODELS dictionary (include per-model URL)
 # -------------------------------------------------------------------
 
 MODELS = {
     "model-a": {
-        "url": MODEL_A_URL,
-        "token": MODEL_A_TOKEN,
+        "model_id": os.getenv("MODEL_A_ID"),
+        "token": os.getenv("MODEL_A_TOKEN"),
+        "url": os.getenv("MODEL_A_URL"),  # this will be passed as base_url
     },
     "model-b": {
-        "url": MODEL_B_URL,
-        "token": MODEL_B_TOKEN,
+        "model_id": os.getenv("MODEL_B_ID"),
+        "token": os.getenv("MODEL_B_TOKEN"),
+        "url": os.getenv("MODEL_B_URL"),  # this will be passed as base_url
     },
 }
+
+# -------------------------------------------------------------------
+# /inference endpoint
+# -------------------------------------------------------------------
 
 @app.get("/")
 async def root():
@@ -103,17 +113,8 @@ async def ping():
 
 @app.post("/inference")
 async def inference(request: Request):
-    """
-    Example payload:
-    {
-        "model_name": "model-a",
-        "inputs": "Explain finite state machines"
-    }
-    """
     payload = await request.json()
-
     logger.info(f"Incoming request:\n{json.dumps(payload, indent=2)}")
-
     print("Incoming request:", json.dumps(payload, indent=2))
 
     model_name = payload.get("model_name")
@@ -126,13 +127,14 @@ async def inference(request: Request):
         logger.warning(f"Unknown model requested: {model_name}")
         raise HTTPException(status_code=400, detail=f"Unknown model: {model_name}")
 
-    # Remove 'model_name' before sending to Cloudera if not needed
+    # Remove 'model_name' before sending to the model
     payload.pop("model_name")
 
     return await forward_to_cloudera(
-        url=model_info["url"],
-        payload=payload,
-        token=model_info["token"]
+        model_id=model_info["model_id"],
+        base_url=model_info["url"],
+        token=model_info["token"],
+        payload=payload
     )
 # -------------------------------------------------------------------
 # Uvicorn entry point
