@@ -48,19 +48,36 @@ async def forward_to_cloudera(url: str, payload: dict, token: str):
     return response.json()
 
 # -------------------------------------------------------------------
-# Model endpoints
+# Model endpoint
 # -------------------------------------------------------------------
 
-@app.post("/model-a")
-async def model_a(request: Request):
+@app.post("/inference")
+async def inference(request: Request):
+    """
+    Example payload:
+    {
+        "model_name": "model-a",
+        "inputs": "Explain finite state machines"
+    }
+    """
     payload = await request.json()
-    return await forward_to_cloudera(MODEL_A_URL, payload, MODEL_A_TOKEN)
 
-@app.post("/model-b")
-async def model_b(request: Request):
-    payload = await request.json()
-    return await forward_to_cloudera(MODEL_B_URL, payload, MODEL_B_TOKEN)
+    model_name = payload.get("model_name")
+    if not model_name:
+        raise HTTPException(status_code=400, detail="Missing 'model_name' field")
 
+    model_info = MODELS.get(model_name)
+    if not model_info:
+        raise HTTPException(status_code=400, detail=f"Unknown model: {model_name}")
+
+    # Remove 'model_name' before sending to Cloudera if not needed
+    payload.pop("model_name")
+
+    return await forward_to_cloudera(
+        url=model_info["url"],
+        payload=payload,
+        token=model_info["token"]
+    )
 # -------------------------------------------------------------------
 # Uvicorn entry point
 # -------------------------------------------------------------------
