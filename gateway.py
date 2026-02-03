@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request
 import httpx
 import os
-import uvicorn
-import threading
+#import uvicorn
+#import threading
 import json
 
 # -------------------------------------------------------------------
