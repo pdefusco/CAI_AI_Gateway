@@ -4,6 +4,7 @@ import os
 import uvicorn
 import threading
 import json
+from langchain_openai import ChatOpenAI
 
 # -------------------------------------------------------------------
 # Configure logging
