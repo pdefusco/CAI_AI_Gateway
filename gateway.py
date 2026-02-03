@@ -1,8 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request
 import httpx
 import os
-#import uvicorn
-#import threading
+import uvicorn
+import threading
 import json
 
 # -------------------------------------------------------------------
@@ -138,12 +138,12 @@ async def inference(request: Request):
 # Uvicorn entry point
 # -------------------------------------------------------------------
 
-'''if __name__ == "__main__":
+if __name__ == "__main__":
     print("Running on port:", os.environ["CDSW_APP_PORT"])
     uvicorn.run(
-        "gateway:app",
-        host="0.0.0.0",
+        app,
+        host="127.0.0.1",
         port=int(os.environ["CDSW_APP_PORT"]),
         log_level="info",
         reload=False,
-    )'''
+    )
