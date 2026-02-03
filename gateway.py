@@ -121,6 +121,7 @@ async def inference(request: Request):
 # -------------------------------------------------------------------
 
 def run_server():
+    print("Running on port: ", os.environ["CDSW_APP_PORT"])
     uvicorn.run(app, host="127.0.0.1", port=int(os.environ['CDSW_APP_PORT']), log_level="info", reload=False)
 
 server_thread = threading.Thread(target=run_server)
