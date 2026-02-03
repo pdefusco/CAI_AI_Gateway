@@ -114,34 +114,29 @@ async def ping():
 
 
 @app.post("/inference")
-def inference(request: Request):
-    # Read raw body bytes synchronously
-    body = request.body()  # returns a coroutine, so need to run it
-    import asyncio
-    payload_bytes = asyncio.run(body)
-    payload = json.loads(payload_bytes.decode("utf-8"))
-
+async def inference(request: Request):
+    payload = await request.json()
     logger.info(f"Incoming request:\n{json.dumps(payload, indent=2)}")
+
     model_name = payload.get("model_name")
     if not model_name:
-        return {"error": "Missing 'model_name' field"}
+        raise HTTPException(status_code=400, detail="Missing 'model_name' field")
 
     model_info = MODELS.get(model_name)
     if not model_info:
-        return {"error": f"Unknown model: {model_name}"}
+        raise HTTPException(status_code=400, detail=f"Unknown model: {model_name}")
 
     payload.pop("model_name")
 
-    # Call the model (synchronously)
-    result = forward_to_cloudera(
+    # Await the async forward function
+    response = await forward_to_cloudera(
         model_id=model_info["model_id"],
         base_url=model_info["url"],
         token=model_info["token"],
         payload=payload
     )
+    return response
 
-    print("Model output:", result)
-    return result
 
 # -------------------------------------------------------------------
 # Uvicorn entry point
