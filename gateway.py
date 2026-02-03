@@ -1,9 +1,8 @@
 from fastapi import FastAPI, HTTPException, Request
 import os
+import requests
 import uvicorn
 import threading
-from langchain_openai import ChatOpenAI
-import json
 
 app = FastAPI()
 
@@ -14,48 +13,65 @@ MODELS = {
     "model-a": {
         "model_id": os.getenv("MODEL_A_ID"),
         "token": os.getenv("MODEL_A_TOKEN"),
-        "url": os.getenv("MODEL_A_URL"),
+        "url": os.getenv("MODEL_A_URL"),  # must end with /v1
     },
     "model-b": {
         "model_id": os.getenv("MODEL_B_ID"),
         "token": os.getenv("MODEL_B_TOKEN"),
-        "url": os.getenv("MODEL_B_URL"),
+        "url": os.getenv("MODEL_B_URL"),  # must end with /v1
     },
 }
 
 # ------------------------------
-# Forwarding function (sync)
+# Forwarding function (SYNC, requests)
 # ------------------------------
 def forward_to_cloudera(model_id: str, base_url: str, token: str, user_input: str):
-    # Synchronous call
-    llm = ChatOpenAI(
-        model=model_id,
-        api_key=token,
-        base_url=base_url,
-        temperature=0.0,
-    )
+    url = f"{base_url}/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": model_id,
+        "messages": [
+            {"role": "user", "content": user_input}
+        ]
+    }
 
     try:
-        output = llm(user_input)  # just pass string, returns string
-        return {"output": output}
-    except Exception as e:
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+    except requests.RequestException as e:
         raise HTTPException(status_code=502, detail=str(e))
 
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=response.text
+        )
+
+    data = response.json()
+
+    # OpenAI-compatible response parsing
+    return {
+        "output": data["choices"][0]["message"]["content"]
+    }
 
 # ------------------------------
 # Endpoints
 # ------------------------------
 @app.get("/")
-async def root():
+def root():
     return {"status": "ok"}
 
 @app.get("/ping")
-async def ping():
+def ping():
     return {"ok": True}
 
 @app.post("/inference")
 async def inference(request: Request):
-    payload = await request.json()  # keep async here
+    payload = await request.json()
 
     model_name = payload.get("model_name")
     if not model_name:
@@ -76,12 +92,15 @@ async def inference(request: Request):
         user_input=user_input
     )
 
-
 # ------------------------------
 # Run server
 # ------------------------------
-
 def run_server():
-    uvicorn.run(app, host="127.0.0.1", port=int(os.environ['CDSW_APP_PORT']), log_level="warning")
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=int(os.environ["CDSW_APP_PORT"]),
+        log_level="warning"
+    )
 
 threading.Thread(target=run_server).start()
