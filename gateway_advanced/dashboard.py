@@ -94,4 +94,4 @@ st.markdown(
 
 if __name__ == "__main__":
     import os
-    os.system(f"streamlit run /home/cdsw/dashboard.py --server.port $CDSW_APP_PORT --server.address 0.0.0.0")
+    os.system(f"streamlit run /home/cdsw/gateway_advanced/dashboard.py --server.port $CDSW_APP_PORT --server.address 0.0.0.0")
