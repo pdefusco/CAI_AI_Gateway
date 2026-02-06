@@ -7,6 +7,8 @@ import threading
 import logging
 import requests
 from typing import Dict
+import uvicorn
+
 
 # --------------------------------
 # Logging
@@ -41,7 +43,7 @@ MODELS = {
 # --------------------------------
 # Routing weights (dynamic)
 # --------------------------------
-WEIGHT_ARTIFACT_PATH = "/tmp/model_weights.json"
+WEIGHT_ARTIFACT_PATH = "/home/cdsw/model_weights.json"
 MODEL_WEIGHTS: Dict[str, float] = {k: 1.0 for k in MODELS}
 
 WEIGHT_REFRESH_SECONDS = 30
@@ -143,3 +145,20 @@ async def inference(request: Request):
         "model": model,
         "output": output,
     }
+
+
+def run_server():
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=int(os.environ["CDSW_APP_PORT"]),
+        log_level="warning",
+    )
+
+if __name__ == "__main__":
+    # Start Uvicorn in background thread (CDSW-safe)
+    threading.Thread(target=run_server, daemon=True).start()
+
+    # Keep main thread alive
+    while True:
+        time.sleep(60)
