@@ -4,8 +4,9 @@ httpx
 langchain-openai>=0.1.0
 langgraph>=0.0.40
 langchain>=0.1.0
-streamlit
 pandas
 matplotlib
 altair
 requests
+streamlit>=1.25.0
+streamlit-autorefresh>=0.1.4
