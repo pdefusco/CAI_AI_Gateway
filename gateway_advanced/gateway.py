@@ -1,0 +1,145 @@
+from fastapi import FastAPI, HTTPException, Request
+import os
+import time
+import json
+import random
+import threading
+import logging
+import requests
+from typing import Dict
+
+# --------------------------------
+# Logging
+# --------------------------------
+logger = logging.getLogger("ai_gateway")
+logger.setLevel(logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+logger.handlers = [handler]
+logger.propagate = False
+
+app = FastAPI()
+
+# --------------------------------
+# Model configuration (static)
+# --------------------------------
+MODELS = {
+    "model-a": {
+        "model_id": os.getenv("MODEL_A_ID"),
+        "token": os.getenv("MODEL_A_TOKEN"),
+        "url": os.getenv("MODEL_A_URL"),  # ends with /v1
+        "cost": 1.0,
+    },
+    "model-b": {
+        "model_id": os.getenv("MODEL_B_ID"),
+        "token": os.getenv("MODEL_B_TOKEN"),
+        "url": os.getenv("MODEL_B_URL"),
+        "cost": 0.5,
+    },
+}
+
+# --------------------------------
+# Routing weights (dynamic)
+# --------------------------------
+WEIGHT_ARTIFACT_PATH = "/tmp/model_weights.json"
+MODEL_WEIGHTS: Dict[str, float] = {k: 1.0 for k in MODELS}
+
+WEIGHT_REFRESH_SECONDS = 30
+
+
+def load_weights():
+    global MODEL_WEIGHTS
+    try:
+        with open(WEIGHT_ARTIFACT_PATH, "r") as f:
+            data = json.load(f)
+            MODEL_WEIGHTS = data["weights"]
+            logger.info(f"Loaded model weights: {MODEL_WEIGHTS}")
+    except FileNotFoundError:
+        logger.warning("Weight artifact not found; using defaults")
+    except Exception as e:
+        logger.error(f"Failed to load weights: {e}")
+
+
+def weight_refresher():
+    while True:
+        load_weights()
+        time.sleep(WEIGHT_REFRESH_SECONDS)
+
+
+threading.Thread(target=weight_refresher, daemon=True).start()
+
+# --------------------------------
+# Utilities
+# --------------------------------
+def weighted_choice(weights: Dict[str, float]) -> str:
+    total = sum(weights.values())
+    r = random.uniform(0, total)
+    upto = 0
+    for model, w in weights.items():
+        upto += w
+        if upto >= r:
+            return model
+    return random.choice(list(weights.keys()))
+
+
+def forward_to_model(model_name: str, user_input: str):
+    m = MODELS[model_name]
+    url = f"{m['url']}/chat/completions"
+
+    payload = {
+        "model": m["model_id"],
+        "messages": [{"role": "user", "content": user_input}],
+    }
+
+    headers = {
+        "Authorization": f"Bearer {m['token']}",
+        "Content-Type": "application/json",
+    }
+
+    start = time.time()
+    resp = requests.post(url, json=payload, headers=headers, timeout=60)
+    latency = time.time() - start
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=resp.text)
+
+    output = resp.json()["choices"][0]["message"]["content"]
+
+    # ---- Telemetry (stub — SDK goes here) ----
+    logger.info(json.dumps({
+        "event": "inference_complete",
+        "model": model_name,
+        "latency": round(latency, 3),
+        "cost": m["cost"],
+        "prompt_chars": len(user_input),
+        "output_chars": len(output),
+    }))
+
+    return output
+
+
+# --------------------------------
+# Endpoints
+# --------------------------------
+@app.get("/ping")
+def ping():
+    return {"ok": True}
+
+
+@app.post("/inference")
+async def inference(request: Request):
+    body = await request.json()
+    user_input = body.get("inputs")
+
+    if not user_input:
+        raise HTTPException(status_code=400, detail="Missing inputs")
+
+    model = weighted_choice(MODEL_WEIGHTS)
+    logger.info(f"Routing request to {model}")
+
+    output = forward_to_model(model, user_input)
+
+    return {
+        "model": model,
+        "output": output,
+    }
