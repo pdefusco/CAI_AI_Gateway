@@ -91,7 +91,3 @@ st.markdown(
     - No routing or evaluation logic runs here
     """
 )
-
-if __name__ == "__main__":
-    import os
-    os.system(f"streamlit run /home/cdsw/gateway_advanced/dashboard.py --server.port 8080 --server.address 127.0.0.1")
