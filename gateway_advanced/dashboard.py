@@ -3,6 +3,7 @@ import json
 import os
 import time
 import pandas as pd
+from streamlit.runtime.scriptrunner import add_script_run_ctx
 
 WEIGHT_ARTIFACT_PATH = "/tmp/model_weights.json"
 REFRESH_SECONDS = 30
@@ -17,9 +18,10 @@ st.title("AI Gateway — Model Routing Dashboard")
 # -----------------------------
 # Auto-refresh
 # -----------------------------
+from streamlit_autorefresh import st_autorefresh
+
 st.caption(f"Auto-refresh every {REFRESH_SECONDS}s")
-time.sleep(REFRESH_SECONDS)
-st.experimental_rerun()
+count = st_autorefresh(interval=REFRESH_SECONDS * 1000, limit=None, key="dashboard_autorefresh")
 
 # -----------------------------
 # Load weight artifact
@@ -89,3 +91,7 @@ st.markdown(
     - No routing or evaluation logic runs here
     """
 )
+
+if __name__ == "__main__":
+    import os
+    os.system(f"streamlit run {__file__} --server.port $CDSW_APP_PORT --server.address 0.0.0.0")
