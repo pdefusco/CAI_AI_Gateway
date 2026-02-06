@@ -5,7 +5,7 @@ import time
 import pandas as pd
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 
-WEIGHT_ARTIFACT_PATH = "/tmp/model_weights.json"
+WEIGHT_ARTIFACT_PATH = "/home/cdsw/model_weights.json"
 REFRESH_SECONDS = 30
 
 st.set_page_config(
