@@ -2,12 +2,14 @@ import time
 import json
 import random
 import logging
+import requests
 import os
 import threading
 from collections import defaultdict
 from typing import Dict
 
-import gradio as gr
+from fastapi import FastAPI
+import uvicorn
 
 # --------------------------------
 # Logging
@@ -26,7 +28,6 @@ logger.propagate = False
 # --------------------------------
 WEIGHT_ARTIFACT_PATH = "/home/cdsw/model_weights.json"
 EVAL_INTERVAL_SECONDS = 120
-DASH_REFRESH_SECONDS = 30  # how often dashboard updates
 
 JUDGE_MODEL = {
     "model_id": os.getenv("JUDGE_MODEL_ID"),
@@ -35,20 +36,18 @@ JUDGE_MODEL = {
 }
 
 # --------------------------------
-# Shared state
+# FastAPI app (read-only)
 # --------------------------------
-LAST_ARTIFACT: Dict = {
-    "weights": {"model-a": 0.1, "model-b": 0.1},
-    "avg_scores": {"model-a": 0.0, "model-b": 0.0},
-    "sample_counts": {"model-a": 0, "model-b": 0},
-    "timestamp": time.time(),
-}
+app = FastAPI()
+
+LAST_RUN_TS: float | None = None
+LAST_ARTIFACT: Dict | None = None
 
 # --------------------------------
 # Mock telemetry fetch
 # --------------------------------
 def fetch_recent_requests():
-    # TODO: Replace with actual SDK query
+    # Replace with SDK query
     return [
         {"model": "model-a", "output": "some text"},
         {"model": "model-b", "output": "another text"},
@@ -56,19 +55,51 @@ def fetch_recent_requests():
 
 
 def judge_response(text: str) -> float:
-    # TODO: Replace with actual judge model call
-    return random.uniform(0.0, 1.0)
+    """
+    Call the judge model to score a model's output.
+    Returns a float 0.0–1.0
+    """
+    payload = {
+        "model": JUDGE_MODEL["model_id"],
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a judge. Rate the quality of the following output from 0 to 1."
+            },
+            {
+                "role": "user",
+                "content": text
+            }
+        ]
+    }
+    headers = {
+        "Authorization": f"Bearer {JUDGE_MODEL['token']}",
+        "Content-Type": "application/json"
+    }
+    try:
+        resp = requests.post(f"{JUDGE_MODEL['url']}/chat/completions", json=payload, headers=headers, timeout=30)
+        resp.raise_for_status()
+        score_text = resp.json()["choices"][0]["message"]["content"]
+        # Try to parse score as float
+        score = float(score_text.strip())
+        return min(max(score, 0.0), 1.0)
+    except Exception as e:
+        logger.warning(f"Judge model call failed: {e}, falling back to random score")
+        return random.uniform(0.0, 1.0)
 
 
 def compute_weights(scores: Dict[str, list[float]]) -> Dict[str, float]:
-    return {model: max(0.1, sum(vals) / len(vals)) for model, vals in scores.items()}
+    return {
+        model: max(0.1, sum(vals) / len(vals))
+        for model, vals in scores.items()
+    }
 
 
 # --------------------------------
-# Judge loop (warm path)
+# Judge loop (control plane owner)
 # --------------------------------
 def run_loop():
-    global LAST_ARTIFACT
+    global LAST_RUN_TS, LAST_ARTIFACT
 
     while True:
         logger.info("Starting evaluation cycle")
@@ -88,18 +119,20 @@ def run_loop():
                 "timestamp": start_ts,
                 "window": f"last_{EVAL_INTERVAL_SECONDS}s",
                 "weights": weights,
-                "avg_scores": {m: sum(v) / len(v) for m, v in scores.items()},
-                "sample_counts": {m: len(v) for m, v in scores.items()},
+                "avg_scores": {
+                    m: sum(v) / len(v) for m, v in scores.items()
+                },
+                "sample_counts": {
+                    m: len(v) for m, v in scores.items()
+                },
             }
 
-            # Save artifact to disk
-            try:
-                with open(WEIGHT_ARTIFACT_PATH, "w") as f:
-                    json.dump(artifact, f, indent=2)
-            except Exception as e:
-                logger.error(f"Failed to write artifact: {e}")
+            with open(WEIGHT_ARTIFACT_PATH, "w") as f:
+                json.dump(artifact, f, indent=2)
 
+            LAST_RUN_TS = start_ts
             LAST_ARTIFACT = artifact
+
             logger.info(f"Published new weights: {weights}")
         else:
             logger.info("No samples available for evaluation")
@@ -108,56 +141,53 @@ def run_loop():
 
 
 # --------------------------------
-# Gradio dashboard
+# API endpoints (observability only)
 # --------------------------------
-def get_dashboard():
-    import pandas as pd
+@app.get("/ping")
+def ping():
+    return {"ok": True}
 
-    artifact = LAST_ARTIFACT
+
+@app.get("/status")
+def status():
     return {
-        "Metadata": f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(artifact['timestamp']))}",
-        "Weights": pd.DataFrame(artifact["weights"].items(), columns=["Model", "Weight"]),
-        "Avg Scores": pd.DataFrame(artifact["avg_scores"].items(), columns=["Model", "Score"]),
-        "Sample Counts": pd.DataFrame(artifact["sample_counts"].items(), columns=["Model", "Samples"]),
+        "last_run_ts": LAST_RUN_TS,
+        "artifact_path": WEIGHT_ARTIFACT_PATH,
+        "eval_interval_seconds": EVAL_INTERVAL_SECONDS,
     }
 
 
-def build_gradio_ui():
-    with gr.Blocks() as demo:
-        gr.Markdown("## AI Gateway — LLM-as-Judge Dashboard")
+@app.get("/artifact")
+def artifact():
+    if LAST_ARTIFACT:
+        return LAST_ARTIFACT
 
-        weights_table = gr.Dataframe()
-        scores_table = gr.Dataframe()
-        counts_table = gr.Dataframe()
-        metadata_text = gr.Markdown()
+    if not os.path.exists(WEIGHT_ARTIFACT_PATH):
+        return {"status": "no artifact yet"}
 
-        def update():
-            data = get_dashboard()
-            metadata_text.update(data["Metadata"])
-            weights_table.update(data["Weights"])
-            scores_table.update(data["Avg Scores"])
-            counts_table.update(data["Sample Counts"])
-
-        # Refresh button
-        gr.Button("Refresh").click(fn=update, inputs=[], outputs=[])
-
-        # Auto-refresh via queue
-        demo.load(fn=update, inputs=[], outputs=[], every=DASH_REFRESH_SECONDS)
-
-    return demo
+    with open(WEIGHT_ARTIFACT_PATH) as f:
+        return json.load(f)
 
 
 # --------------------------------
-# Main launcher
+# Server launcher (Cloudera AI style)
 # --------------------------------
+def run_server():
+    uvicorn.run(
+        app,
+        host="127.0.0.1",
+        port=int(os.environ["CDSW_APP_PORT"]),
+        log_level="warning",
+    )
+
+
 if __name__ == "__main__":
-    # Start judge loop in background
+    # Start judge loop (warm path)
     threading.Thread(target=run_loop, daemon=True).start()
 
-    # Start Gradio dashboard
-    demo = build_gradio_ui()
-    demo.launch(
-        server_name="127.0.0.1",
-        server_port=int(os.environ["CDSW_APP_PORT"]),
-        show_error=True,
-    )
+    # Start API server in its own thread (CDSW-safe)
+    threading.Thread(target=run_server, daemon=True).start()
+
+    # Keep the main thread alive
+    while True:
+        time.sleep(60)
