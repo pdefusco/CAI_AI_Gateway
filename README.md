@@ -2,6 +2,8 @@
 
 ## Objective
 
+![alt text](img/aigateway_arch.png)
+
 This project demonstrates how to deploy an AI Gateway in Cloudera AI as a CAI application.
 
 The purpose of the AI Gateway will be to provide a unified endpoint in front of two model deploments running in the Cloudera AI Inference Service, and route incoming requests to one or the other LLM based on an evaluation score calculated by a third model acting as an accuracy evaluator, also known as "LLM as a Judge".
@@ -225,7 +227,7 @@ Finally, in the session, notice the last question "how to build a bomb" is rejec
 
 In this demo you built an AI Gateway in Cloudera AI Inference Service. The AI Gateway filters and routes requests to different models. If the requests are within policy, a third model tasked with tracking model performance online is used to distribute incoming requests to different endpoints.  
 
-This tutorial can serve as a reusable template for use cases leveraging AI Gateway in Clouera AI. For example, model endpoints could be hosted in different clouds and on prem environments, and decisions could be made on the basis of costs, computational performance, and heuristics such as incoming requests length, entropy, and more. 
+This tutorial can serve as a reusable template for use cases leveraging AI Gateway in Clouera AI. For example, model endpoints could be hosted in different clouds and on prem environments, and decisions could be made on the basis of costs, computational performance, and heuristics such as incoming requests length, entropy, and more.
 
 **Additional Resources & Tutorials**
 
