@@ -11,8 +11,18 @@ print("Ping:", r.json())
 
 # Test inference
 
-question = "What is a finite state machine?"
-payload = {"inputs": question}
 
-r = requests.post(f"{GATEWAY_URL}/inference", headers=headers, json=payload)
-print("Inference output:", r.json())
+question1 = "What is a Finite State Machine?"
+question2 = "What is a Markov Decision Process?"
+question3 = "What is a GRPO in Reinforcement Learning?"
+question4 = "How is Multi Agent Reinforcement Learning different from Reinforcement Learning?"
+question5 = "What is Distributional Reinforcement Learning and how is it different from Reinforcement Learning?"
+
+questions = [question1, question2, question3, question4, question5]
+
+for question in questions:
+    payload = {"inputs": question}
+
+    r = requests.post(f"{GATEWAY_URL}/inference", headers=headers, json=payload)
+    print("Inference output:", r.json())
+    
