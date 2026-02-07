@@ -24,6 +24,25 @@ logger.propagate = False
 app = FastAPI()
 
 # --------------------------------
+# Guardrail
+# --------------------------------
+import re
+
+FORBIDDEN_PATTERNS = [
+    r"\bhow to build a bomb\b",
+    r"\bcredit card numbers?\b",
+    r"\bterrorist attack\b",
+    r"\billegal drugs?\b",
+]
+
+def violates_policy(text: str) -> str | None:
+    for pattern in FORBIDDEN_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return pattern
+    return None
+
+
+# --------------------------------
 # Model configuration (static)
 # --------------------------------
 MODELS = {
@@ -164,6 +183,20 @@ async def inference(request: Request):
     user_input = body.get("inputs")
     if not user_input:
         raise HTTPException(status_code=400, detail="Missing inputs")
+
+    violation = violates_policy(user_input)
+    if violation:
+        logger.warning(json.dumps({
+            "event": "policy_block",
+            "reason": "forbidden_topic",
+            "matched_pattern": violation,
+            "prompt_preview": user_input[:200],
+        }))
+
+        raise HTTPException(
+            status_code=403,
+            detail="This request violates usage policies and cannot be processed."
+        )
 
     request_id = str(uuid.uuid4())
     model = weighted_choice(MODEL_WEIGHTS)
