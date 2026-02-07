@@ -135,7 +135,7 @@ def judge_response(user_input: str, model_output: str) -> float:
             f"{JUDGE_MODEL['url']}/chat/completions",
             json=payload,
             headers=headers,
-            timeout=30
+            timeout=180
         )
         resp.raise_for_status()
         score_text = resp.json()["choices"][0]["message"]["content"]

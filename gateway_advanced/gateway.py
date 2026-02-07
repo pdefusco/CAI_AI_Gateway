@@ -136,7 +136,7 @@ def forward_to_model(model_name: str, user_input: str):
     }
 
     start = time.time()
-    resp = requests.post(url, json=payload, headers=headers, timeout=60)
+    resp = requests.post(url, json=payload, headers=headers, timeout=180)
     latency = time.time() - start
 
     if resp.status_code != 200:
