@@ -1,5 +1,6 @@
 import requests
 import os
+import time
 
 GATEWAY_URL = os.environ.get("GATEWAY_URL")
 TOKEN = os.getenv("API_KEY")  # set this in your environment
