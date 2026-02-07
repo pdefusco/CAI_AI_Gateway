@@ -69,7 +69,7 @@ WEIGHT_REFRESH_SECONDS = 30
 # --------------------------------
 # SQLite helper
 # --------------------------------
-DB_PATH = "/tmp/requests.db"
+DB_PATH = "/home/cdsw/shared/requests.db"
 
 def get_conn():
     """Return a new SQLite connection with timeout for concurrency"""

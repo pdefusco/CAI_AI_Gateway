@@ -47,7 +47,7 @@ LAST_WEIGHTS: Dict[str, float] | None = None
 # --------------------------------
 # SQLite helper
 # --------------------------------
-DB_PATH = "/tmp/requests.db"
+DB_PATH = "/home/cdsw/shared/requests.db"
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)

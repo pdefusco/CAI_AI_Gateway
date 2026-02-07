@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 import time
 
-DB_PATH = "/tmp/requests.db"
+DB_PATH = "/home/cdsw/shared/requests.db"
 REFRESH_SECONDS = 10
 
 st.set_page_config(
