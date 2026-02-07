@@ -59,16 +59,6 @@ CREATE TABLE IF NOT EXISTS scores (
 """)
 conn.commit()
 
-# Model weights table (same table the gateway reads)
-c.execute("""
-CREATE TABLE IF NOT EXISTS model_weights (
-    model TEXT PRIMARY KEY,
-    weight REAL NOT NULL,
-    last_updated REAL DEFAULT (strftime('%s','now'))
-)
-""")
-conn.commit()
-
 # Initialize weights if empty
 for model in ["model-a", "model-b"]:
     c.execute(
