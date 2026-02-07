@@ -55,7 +55,7 @@ DB_PATH = "/home/cdsw/requests.db"
 def get_conn():
     """Return a new SQLite connection with timeout for concurrency"""
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA journal_mode=DELETE;")
     return conn
 
 # Initialize tables

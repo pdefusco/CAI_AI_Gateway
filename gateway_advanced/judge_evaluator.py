@@ -51,7 +51,7 @@ DB_PATH = "/home/cdsw/requests.db"
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA journal_mode=DELETE;")
     return conn
 
 # Initialize tables
