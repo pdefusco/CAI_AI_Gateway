@@ -31,9 +31,9 @@ c = conn.cursor()
 # Load latest model weights
 # -----------------------------
 c.execute("""
-    SELECT model, weight, timestamp
+    SELECT model, weight, last_updated
     FROM model_weights
-    WHERE timestamp = (SELECT MAX(timestamp) FROM model_weights)
+    WHERE last_updated = (SELECT MAX(last_updated) FROM model_weights)
 """)
 rows = c.fetchall()
 
@@ -41,8 +41,8 @@ if not rows:
     st.warning("No model weights found in the database yet")
     st.stop()
 
-weights_df = pd.DataFrame(rows, columns=["model", "weight", "timestamp"])
-weights_df = weights_df.drop(columns="timestamp")  # Optional, just for display
+weights_df = pd.DataFrame(rows, columns=["model", "weight", "last_updated"])
+weights_df = weights_df.drop(columns="last_updated")  # Optional, just for display
 
 # -----------------------------
 # Model weights chart
@@ -54,12 +54,12 @@ st.bar_chart(weights_df.set_index("model"))
 # Optional: show historical weights over time
 # -----------------------------
 st.subheader("Routing Weights History")
-c.execute("SELECT timestamp, model, weight FROM model_weights ORDER BY timestamp ASC")
+c.execute("SELECT last_updated, model, weight FROM model_weights ORDER BY last_updated ASC")
 history_rows = c.fetchall()
 if history_rows:
-    history_df = pd.DataFrame(history_rows, columns=["timestamp", "model", "weight"])
-    history_df["timestamp"] = pd.to_datetime(history_df["timestamp"], unit='s')
-    st.line_chart(history_df.pivot(index="timestamp", columns="model", values="weight"))
+    history_df = pd.DataFrame(history_rows, columns=["last_updated", "model", "weight"])
+    history_df["last_updated"] = pd.to_datetime(history_df["last_updated"], unit='s')
+    st.line_chart(history_df.pivot(index="last_updated", columns="model", values="weight"))
 
 # -----------------------------
 # Design note
