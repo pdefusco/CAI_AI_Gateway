@@ -43,7 +43,7 @@ LAST_WEIGHTS: Dict[str, float] | None = None
 # --------------------------------
 # SQLite helper
 # --------------------------------
-DB_PATH = "requests.db"
+DB_PATH = "/home/cdsw/requests.db"
 
 def get_conn():
     """Return a new SQLite connection with timeout for concurrency"""
