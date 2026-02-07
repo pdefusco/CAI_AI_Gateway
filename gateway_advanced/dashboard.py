@@ -1,12 +1,10 @@
 import streamlit as st
-import json
-import os
-import time
+import sqlite3
 import pandas as pd
-from streamlit.runtime.scriptrunner import add_script_run_ctx
+import time
 
-WEIGHT_ARTIFACT_PATH = "/home/cdsw/model_weights.json"
-REFRESH_SECONDS = 30
+DB_PATH = "requests.db"
+REFRESH_SECONDS = 10
 
 st.set_page_config(
     page_title="AI Gateway Dashboard",
@@ -24,70 +22,52 @@ st.caption(f"Auto-refresh every {REFRESH_SECONDS}s")
 count = st_autorefresh(interval=REFRESH_SECONDS * 1000, limit=None, key="dashboard_autorefresh")
 
 # -----------------------------
-# Load weight artifact
+# Connect to SQLite
 # -----------------------------
-if not os.path.exists(WEIGHT_ARTIFACT_PATH):
-    st.warning("No weight artifact found yet")
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+c = conn.cursor()
+
+# -----------------------------
+# Load latest model weights
+# -----------------------------
+c.execute("""
+    SELECT model, weight, timestamp
+    FROM model_weights
+    WHERE timestamp = (SELECT MAX(timestamp) FROM model_weights)
+""")
+rows = c.fetchall()
+
+if not rows:
+    st.warning("No model weights found in the database yet")
     st.stop()
 
-with open(WEIGHT_ARTIFACT_PATH) as f:
-    artifact = json.load(f)
+weights_df = pd.DataFrame(rows, columns=["model", "weight", "timestamp"])
+weights_df = weights_df.drop(columns="timestamp")  # Optional, just for display
 
 # -----------------------------
-# Metadata
+# Model weights chart
 # -----------------------------
-st.subheader("Artifact Metadata")
-st.json({
-    "timestamp": artifact.get("timestamp"),
-    "version": artifact.get("version", "n/a"),
-})
-
-# -----------------------------
-# Model weights
-# -----------------------------
-st.subheader("Routing Weights")
-
-weights_df = pd.DataFrame(
-    artifact["weights"].items(),
-    columns=["model", "weight"]
-)
-
+st.subheader("Routing Weights (Latest)")
 st.bar_chart(weights_df.set_index("model"))
 
 # -----------------------------
-# Quality metrics
+# Optional: show historical weights over time
 # -----------------------------
-if "avg_scores" in artifact:
-    st.subheader("LLM-as-Judge — Avg Score")
-
-    scores_df = pd.DataFrame(
-        artifact["avg_scores"].items(),
-        columns=["model", "avg_score"]
-    )
-
-    st.bar_chart(scores_df.set_index("model"))
-
-# -----------------------------
-# Sampling coverage
-# -----------------------------
-if "sample_counts" in artifact:
-    st.subheader("Evaluation Coverage")
-
-    counts_df = pd.DataFrame(
-        artifact["sample_counts"].items(),
-        columns=["model", "samples"]
-    )
-
-    st.table(counts_df)
+st.subheader("Routing Weights History")
+c.execute("SELECT timestamp, model, weight FROM model_weights ORDER BY timestamp ASC")
+history_rows = c.fetchall()
+if history_rows:
+    history_df = pd.DataFrame(history_rows, columns=["timestamp", "model", "weight"])
+    history_df["timestamp"] = pd.to_datetime(history_df["timestamp"], unit='s')
+    st.line_chart(history_df.pivot(index="timestamp", columns="model", values="weight"))
 
 # -----------------------------
 # Design note
 # -----------------------------
 st.markdown(
     """
-    **Notes**
-    - This dashboard is read-only
-    - Data comes from derived artifacts + SDK telemetry
-    - No routing or evaluation logic runs here
+    This Dashboard shows updated model weights in near real time.
+    Model weights are assigned by the LLM Judge after reviewing model responses to the provided inputs.
+    The gateway periodically reads these model weights and routes incoming requests to the preferred model.
     """
 )

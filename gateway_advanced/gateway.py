@@ -6,9 +6,10 @@ import random
 import threading
 import logging
 import requests
+import sqlite3
+import uuid
 from typing import Dict
 import uvicorn
-
 
 # --------------------------------
 # Logging
@@ -45,10 +46,28 @@ MODELS = {
 # --------------------------------
 WEIGHT_ARTIFACT_PATH = "/home/cdsw/model_weights.json"
 MODEL_WEIGHTS: Dict[str, float] = {k: 1.0 for k in MODELS}
-
 WEIGHT_REFRESH_SECONDS = 30
 
+# --------------------------------
+# SQLite database setup
+# --------------------------------
+DB_PATH = "requests.db"
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+c = conn.cursor()
+c.execute("""
+CREATE TABLE IF NOT EXISTS requests (
+    request_id TEXT PRIMARY KEY,
+    user_input TEXT NOT NULL,
+    model_chosen TEXT,
+    model_output TEXT,
+    timestamp REAL DEFAULT (strftime('%s','now'))
+)
+""")
+conn.commit()
 
+# --------------------------------
+# Weight loading and refreshing
+# --------------------------------
 def load_weights():
     global MODEL_WEIGHTS
     try:
@@ -61,12 +80,10 @@ def load_weights():
     except Exception as e:
         logger.error(f"Failed to load weights: {e}")
 
-
 def weight_refresher():
     while True:
         load_weights()
         time.sleep(WEIGHT_REFRESH_SECONDS)
-
 
 threading.Thread(target=weight_refresher, daemon=True).start()
 
@@ -82,7 +99,6 @@ def weighted_choice(weights: Dict[str, float]) -> str:
         if upto >= r:
             return model
     return random.choice(list(weights.keys()))
-
 
 def forward_to_model(model_name: str, user_input: str):
     m = MODELS[model_name]
@@ -107,7 +123,7 @@ def forward_to_model(model_name: str, user_input: str):
 
     output = resp.json()["choices"][0]["message"]["content"]
 
-    # ---- Telemetry (stub — SDK goes here) ----
+    # ---- Telemetry (logging for now) ----
     logger.info(json.dumps({
         "event": "inference_complete",
         "model": model_name,
@@ -119,7 +135,6 @@ def forward_to_model(model_name: str, user_input: str):
 
     return output
 
-
 # --------------------------------
 # Endpoints
 # --------------------------------
@@ -127,26 +142,45 @@ def forward_to_model(model_name: str, user_input: str):
 def ping():
     return {"ok": True}
 
-
 @app.post("/inference")
 async def inference(request: Request):
     body = await request.json()
     user_input = body.get("inputs")
-
     if not user_input:
         raise HTTPException(status_code=400, detail="Missing inputs")
 
     model = weighted_choice(MODEL_WEIGHTS)
     logger.info(f"Routing request to {model}")
 
+    # Generate unique request ID
+    request_id = str(uuid.uuid4())
+
+    # Insert user input into SQLite
+    c.execute(
+        "INSERT INTO requests (request_id, user_input) VALUES (?, ?)",
+        (request_id, user_input)
+    )
+    conn.commit()
+
+    # Call model
     output = forward_to_model(model, user_input)
 
+    # Update row with chosen model and response
+    c.execute(
+        "UPDATE requests SET model_chosen=?, model_output=? WHERE request_id=?",
+        (model, output, request_id)
+    )
+    conn.commit()
+
     return {
+        "request_id": request_id,
         "model": model,
         "output": output,
     }
 
-
+# --------------------------------
+# Server runner
+# --------------------------------
 def run_server():
     uvicorn.run(
         app,
@@ -156,9 +190,6 @@ def run_server():
     )
 
 if __name__ == "__main__":
-    # Start Uvicorn in background thread (CDSW-safe)
     threading.Thread(target=run_server, daemon=True).start()
-
-    # Keep main thread alive
     while True:
         time.sleep(60)
