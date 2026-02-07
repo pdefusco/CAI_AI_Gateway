@@ -8,7 +8,6 @@ import threading
 import sqlite3
 from collections import defaultdict
 from typing import Dict
-
 from fastapi import FastAPI
 import uvicorn
 
@@ -99,10 +98,30 @@ def fetch_recent_requests():
 # --------------------------------
 # Judge response
 # --------------------------------
+import re
+
+logger = logging.getLogger("judge")
+
+def extract_score(score_text: str) -> float:
+    """
+    Extract a numeric score from the LLM judge output.
+    Looks for a number between 0 and 1 in the string.
+    """
+    # Find all numbers like 0.95, 1, 0.0 etc.
+    match = re.findall(r"([0-1](?:\.\d+)?)", score_text)
+    if match:
+        # Take the last number found (usually at the end)
+        score = float(match[-1])
+        return min(max(score, 0.0), 1.0)
+    else:
+        # Fallback if no number is detected
+        logger.warning(f"No numeric score found in judge response. Falling back to random score.")
+        return random.uniform(0.0, 1.0)
+
 def judge_response(user_input: str, model_output: str) -> float:
     """
-    Call the judge model to score a model's output in context of the user input.
-    Returns a float 0.0–1.0
+    Call the judge model to score a model's output in the context of the user input.
+    Returns a float 0.0–1.0.
     """
     prompt = (
         "You are a judge. Given the following question and answer, "
@@ -126,14 +145,20 @@ def judge_response(user_input: str, model_output: str) -> float:
     }
 
     try:
-        resp = requests.post(f"{JUDGE_MODEL['url']}/chat/completions", json=payload, headers=headers, timeout=30)
+        resp = requests.post(
+            f"{JUDGE_MODEL['url']}/chat/completions",
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
         resp.raise_for_status()
         score_text = resp.json()["choices"][0]["message"]["content"]
-        score = float(score_text.strip())
-        return min(max(score, 0.0), 1.0)
+        score = extract_score(score_text)
+        return score
     except Exception as e:
         logger.warning(f"Judge model call failed: {e}, falling back to random score")
         return random.uniform(0.0, 1.0)
+
 
 # --------------------------------
 # Compute weights
