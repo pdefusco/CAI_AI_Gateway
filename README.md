@@ -1,8 +1,8 @@
 # AI Gateway in Cloudera AI
 
-## Objective
-
 ![alt text](img/aigateway_arch.png)
+
+## Objective
 
 This project demonstrates how to deploy an AI Gateway in Cloudera AI as a CAI application.
 
