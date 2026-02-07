@@ -55,10 +55,10 @@ DB_PATH = "/home/cdsw/requests.db"
 def get_conn():
     """Return a new SQLite connection with timeout for concurrency"""
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL;")  # Enable WAL mode for concurrent reads
+    conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
-# Initialize tables if they don't exist
+# Initialize tables
 with get_conn() as conn:
     c = conn.cursor()
     c.execute("""
@@ -70,7 +70,6 @@ with get_conn() as conn:
         timestamp REAL DEFAULT (strftime('%s','now'))
     )
     """)
-    # Gateway only reads model_weights, does not write
     c.execute("""
     CREATE TABLE IF NOT EXISTS model_weights (
         model TEXT PRIMARY KEY,
@@ -78,7 +77,6 @@ with get_conn() as conn:
         last_updated REAL DEFAULT (strftime('%s','now'))
     )
     """)
-    # Initialize weights if empty
     for model in MODELS:
         c.execute(
             "INSERT OR IGNORE INTO model_weights (model, weight) VALUES (?, ?)",
@@ -87,7 +85,14 @@ with get_conn() as conn:
     conn.commit()
 
 # --------------------------------
-# Weight loading and refreshing
+# Pretty logging helpers
+# --------------------------------
+def log_text_block(title: str, text: str, max_chars: int = 500):
+    clipped = text if len(text) <= max_chars else text[:max_chars] + "\n...[truncated]"
+    logger.info(f"{title}:\n{clipped}")
+
+# --------------------------------
+# Weight loading
 # --------------------------------
 def load_weights():
     global MODEL_WEIGHTS
@@ -144,16 +149,7 @@ def forward_to_model(model_name: str, user_input: str):
 
     output = resp.json()["choices"][0]["message"]["content"]
 
-    logger.info(json.dumps({
-        "event": "inference_complete",
-        "model": model_name,
-        "latency": round(latency, 3),
-        "cost": m["cost"],
-        "prompt_chars": len(user_input),
-        "output_chars": len(output),
-    }))
-
-    return output
+    return output, latency
 
 # --------------------------------
 # Endpoints
@@ -169,12 +165,14 @@ async def inference(request: Request):
     if not user_input:
         raise HTTPException(status_code=400, detail="Missing inputs")
 
-    model = weighted_choice(MODEL_WEIGHTS)
-    logger.info(f"Routing request to {model}")
-
     request_id = str(uuid.uuid4())
+    model = weighted_choice(MODEL_WEIGHTS)
 
-    # Insert user input
+    logger.info("=" * 80)
+    logger.info(f"REQUEST id={request_id} → routing to {model}")
+    log_text_block("Question", user_input)
+
+    # Store request
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
@@ -183,9 +181,24 @@ async def inference(request: Request):
         )
         conn.commit()
 
-    output = forward_to_model(model, user_input)
+    output, latency = forward_to_model(model, user_input)
 
-    # Update row with chosen model and response
+    log_text_block(
+        f"Response (model={model}, latency={round(latency, 2)}s)",
+        output
+    )
+
+    logger.info(json.dumps({
+        "event": "inference_complete",
+        "request_id": request_id,
+        "model": model,
+        "latency": round(latency, 3),
+        "cost": MODELS[model]["cost"],
+        "prompt_chars": len(user_input),
+        "output_chars": len(output),
+    }))
+
+    # Store response
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(
