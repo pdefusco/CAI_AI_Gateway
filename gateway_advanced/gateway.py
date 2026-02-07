@@ -86,9 +86,11 @@ with get_conn() as conn:
         user_input TEXT NOT NULL,
         model_chosen TEXT,
         model_output TEXT,
-        timestamp REAL DEFAULT (strftime('%s','now'))
+        timestamp REAL DEFAULT (strftime('%s','now')),
+        judged_at REAL DEFAULT NULL
     )
     """)
+
     c.execute("""
     CREATE TABLE IF NOT EXISTS model_weights (
         model TEXT PRIMARY KEY,

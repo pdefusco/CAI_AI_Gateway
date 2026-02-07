@@ -221,6 +221,10 @@ def run_loop():
                     "INSERT INTO scores (request_id, model, score, timestamp) VALUES (?, ?, ?, ?)",
                     (s["request_id"], s["model"], score, start_ts),
                 )
+                c.execute(
+                    "UPDATE requests SET judged_at=? WHERE request_id=?",
+                    (time.time(), s["request_id"])
+                )        
                 conn.commit()
 
         weights = compute_weights(scores)
@@ -238,7 +242,6 @@ def run_loop():
                     """,
                     (model, weight, start_ts),
                 )
-
             conn.commit()
 
         with get_conn() as conn:
