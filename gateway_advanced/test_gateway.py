@@ -24,6 +24,6 @@ for question in questions:
     payload = {"inputs": question}
 
     r = requests.post(f"{GATEWAY_URL}/inference", headers=headers, json=payload)
-    print("\n\nQuestion",: question)
+    print("\n\nQuestion: ", question)
     print("Inference output:", r.json())
     time.sleep(20)
