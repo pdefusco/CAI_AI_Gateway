@@ -41,46 +41,51 @@ LAST_RUN_TS: float | None = None
 LAST_WEIGHTS: Dict[str, float] | None = None
 
 # --------------------------------
-# SQLite setup
+# SQLite helper
 # --------------------------------
 DB_PATH = "requests.db"
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-c = conn.cursor()
 
-# Scores table
-c.execute("""
-CREATE TABLE IF NOT EXISTS scores (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    request_id TEXT,
-    model TEXT,
-    score REAL,
-    timestamp REAL
-)
-""")
-conn.commit()
+def get_conn():
+    """Return a new SQLite connection with timeout for concurrency"""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")  # Enable WAL mode for concurrent reads/writes
+    return conn
 
-# Initialize weights if empty
-for model in ["model-a", "model-b"]:
-    c.execute(
-        "INSERT OR IGNORE INTO model_weights (model, weight) VALUES (?, ?)",
-        (model, 1.0)
+# Initialize tables if they don't exist
+with get_conn() as conn:
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        request_id TEXT,
+        model TEXT,
+        score REAL,
+        timestamp REAL
     )
-conn.commit()
+    """)
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS model_weights (
+        model TEXT PRIMARY KEY,
+        weight REAL NOT NULL,
+        last_updated REAL DEFAULT (strftime('%s','now'))
+    )
+    """)
+    # Initialize weights if empty
+    for model in ["model-a", "model-b"]:
+        c.execute(
+            "INSERT OR IGNORE INTO model_weights (model, weight) VALUES (?, ?)",
+            (model, 1.0)
+        )
+    conn.commit()
 
 # --------------------------------
 # Fetch requests from SQLite
 # --------------------------------
 def fetch_recent_requests():
-    """
-    Returns a list of dicts containing:
-    - request_id
-    - model
-    - user_input
-    - model_output
-    Only rows where model_output is not NULL
-    """
-    c.execute("SELECT request_id, model_chosen, user_input, model_output FROM requests WHERE model_output IS NOT NULL")
-    rows = c.fetchall()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT request_id, model_chosen, user_input, model_output FROM requests WHERE model_output IS NOT NULL")
+        rows = c.fetchall()
     samples = []
     for r in rows:
         samples.append({
@@ -95,10 +100,6 @@ def fetch_recent_requests():
 # Judge scoring
 # --------------------------------
 def extract_score(score_text: str) -> float:
-    """
-    Extract a numeric score from the LLM judge output.
-    Looks for a number between 0 and 1 in the string.
-    """
     match = re.findall(r"([0-1](?:\.\d+)?)", score_text)
     if match:
         score = float(match[-1])
@@ -108,10 +109,6 @@ def extract_score(score_text: str) -> float:
         return random.uniform(0.0, 1.0)
 
 def judge_response(user_input: str, model_output: str) -> float:
-    """
-    Call the judge model to score a model's output in the context of the user input.
-    Returns a float 0.0–1.0.
-    """
     prompt = (
         "You are a judge. Given the following question and answer, "
         "rate the quality, relevance, and correctness of the answer on a scale from 0 to 1. "
@@ -151,9 +148,6 @@ def judge_response(user_input: str, model_output: str) -> float:
 # Compute weights
 # --------------------------------
 def compute_weights(scores: Dict[str, list[float]]) -> Dict[str, float]:
-    """
-    Compute weights as average scores, with a minimum of 0.1
-    """
     return {
         model: max(0.1, sum(vals) / len(vals))
         for model, vals in scores.items()
@@ -181,22 +175,26 @@ def run_loop():
             scores[s["model"]].append(score)
 
             # Store individual score in SQLite
-            c.execute(
-                "INSERT INTO scores (request_id, model, score, timestamp) VALUES (?, ?, ?, ?)",
-                (s["request_id"], s["model"], score, start_ts)
-            )
-        conn.commit()
+            with get_conn() as conn:
+                c = conn.cursor()
+                c.execute(
+                    "INSERT INTO scores (request_id, model, score, timestamp) VALUES (?, ?, ?, ?)",
+                    (s["request_id"], s["model"], score, start_ts)
+                )
+                conn.commit()
 
         weights = compute_weights(scores)
 
-        # Update weights table for gateway
-        for model, weight in weights.items():
-            c.execute(
-                "INSERT INTO model_weights (model, weight, last_updated) VALUES (?, ?, ?)"
-                "ON CONFLICT(model) DO UPDATE SET weight=excluded.weight, last_updated=excluded.last_updated",
-                (model, weight, start_ts)
-            )
-        conn.commit()
+        # Update weights table for gateway (judge is the only writer)
+        with get_conn() as conn:
+            c = conn.cursor()
+            for model, weight in weights.items():
+                c.execute(
+                    "INSERT INTO model_weights (model, weight, last_updated) VALUES (?, ?, ?)"
+                    "ON CONFLICT(model) DO UPDATE SET weight=excluded.weight, last_updated=excluded.last_updated",
+                    (model, weight, start_ts)
+                )
+            conn.commit()
 
         LAST_RUN_TS = start_ts
         LAST_WEIGHTS = weights

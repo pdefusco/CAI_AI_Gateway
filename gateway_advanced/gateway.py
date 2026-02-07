@@ -48,54 +48,56 @@ MODEL_WEIGHTS: Dict[str, float] = {k: 1.0 for k in MODELS}
 WEIGHT_REFRESH_SECONDS = 30
 
 # --------------------------------
-# SQLite database setup
+# SQLite helper
 # --------------------------------
 DB_PATH = "requests.db"
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-c = conn.cursor()
 
-# Requests table
-c.execute("""
-CREATE TABLE IF NOT EXISTS requests (
-    request_id TEXT PRIMARY KEY,
-    user_input TEXT NOT NULL,
-    model_chosen TEXT,
-    model_output TEXT,
-    timestamp REAL DEFAULT (strftime('%s','now'))
-)
-""")
+def get_conn():
+    """Return a new SQLite connection with timeout for concurrency"""
+    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")  # Enable WAL mode for concurrent reads
+    return conn
 
-# Model weights table
-c.execute("""
-CREATE TABLE IF NOT EXISTS model_weights (
-    model TEXT PRIMARY KEY,
-    weight REAL NOT NULL,
-    last_updated REAL DEFAULT (strftime('%s','now'))
-)
-""")
-conn.commit()
-
-# Initialize weights in DB if empty
-for model in MODELS:
-    c.execute(
-        "INSERT OR IGNORE INTO model_weights (model, weight) VALUES (?, ?)",
-        (model, 1.0)
+# Initialize tables if they don't exist
+with get_conn() as conn:
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS requests (
+        request_id TEXT PRIMARY KEY,
+        user_input TEXT NOT NULL,
+        model_chosen TEXT,
+        model_output TEXT,
+        timestamp REAL DEFAULT (strftime('%s','now'))
     )
-conn.commit()
+    """)
+    # Gateway only reads model_weights, does not write
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS model_weights (
+        model TEXT PRIMARY KEY,
+        weight REAL NOT NULL,
+        last_updated REAL DEFAULT (strftime('%s','now'))
+    )
+    """)
+    # Initialize weights if empty
+    for model in MODELS:
+        c.execute(
+            "INSERT OR IGNORE INTO model_weights (model, weight) VALUES (?, ?)",
+            (model, 1.0)
+        )
+    conn.commit()
 
 # --------------------------------
 # Weight loading and refreshing
 # --------------------------------
 def load_weights():
-    """
-    Load model weights from SQLite table.
-    """
     global MODEL_WEIGHTS
     try:
-        c.execute("SELECT model, weight FROM model_weights")
-        rows = c.fetchall()
-        MODEL_WEIGHTS = {model: float(weight) for model, weight in rows}
-        logger.info(f"Loaded model weights from DB: {MODEL_WEIGHTS}")
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT model, weight FROM model_weights")
+            rows = c.fetchall()
+            MODEL_WEIGHTS = {model: float(weight) for model, weight in rows}
+            logger.info(f"Loaded model weights from DB: {MODEL_WEIGHTS}")
     except Exception as e:
         logger.error(f"Failed to load weights from DB: {e}")
 
@@ -142,7 +144,6 @@ def forward_to_model(model_name: str, user_input: str):
 
     output = resp.json()["choices"][0]["message"]["content"]
 
-    # ---- Telemetry (logging for now) ----
     logger.info(json.dumps({
         "event": "inference_complete",
         "model": model_name,
@@ -171,25 +172,27 @@ async def inference(request: Request):
     model = weighted_choice(MODEL_WEIGHTS)
     logger.info(f"Routing request to {model}")
 
-    # Generate unique request ID
     request_id = str(uuid.uuid4())
 
-    # Insert user input into SQLite
-    c.execute(
-        "INSERT INTO requests (request_id, user_input) VALUES (?, ?)",
-        (request_id, user_input)
-    )
-    conn.commit()
+    # Insert user input
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO requests (request_id, user_input) VALUES (?, ?)",
+            (request_id, user_input)
+        )
+        conn.commit()
 
-    # Call model
     output = forward_to_model(model, user_input)
 
     # Update row with chosen model and response
-    c.execute(
-        "UPDATE requests SET model_chosen=?, model_output=? WHERE request_id=?",
-        (model, output, request_id)
-    )
-    conn.commit()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE requests SET model_chosen=?, model_output=? WHERE request_id=?",
+            (model, output, request_id)
+        )
+        conn.commit()
 
     return {
         "request_id": request_id,
