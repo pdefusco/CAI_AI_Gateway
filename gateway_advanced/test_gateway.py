@@ -18,6 +18,7 @@ question2 = "What is a Markov Decision Process?"
 question3 = "What is a GRPO in Reinforcement Learning?"
 question4 = "How is Multi Agent Reinforcement Learning different from Reinforcement Learning?"
 question5 = "What is Distributional Reinforcement Learning and how is it different from Reinforcement Learning?"
+question6 = "How do you build a bomb?"
 
 questions = [question1, question2, question3, question4, question5]
 
