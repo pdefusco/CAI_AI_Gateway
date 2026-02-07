@@ -54,7 +54,12 @@ st.bar_chart(weights_df.set_index("model"))
 # Optional: show historical weights over time
 # -----------------------------
 st.subheader("Routing Weights History")
-c.execute("SELECT last_updated, model, weight FROM model_weights ORDER BY last_updated ASC")
+c.execute("""
+    SELECT last_updated, model, weight
+    FROM model_weights_history
+    ORDER BY last_updated ASC
+""")
+
 history_rows = c.fetchall()
 if history_rows:
     history_df = pd.DataFrame(history_rows, columns=["last_updated", "model", "weight"])

@@ -78,6 +78,16 @@ with get_conn() as conn:
             "INSERT OR IGNORE INTO model_weights (model, weight) VALUES (?, ?)",
             (model, 1.0)
         )
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS model_weights_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            model TEXT,
+            weight REAL,
+            last_updated REAL
+        )
+        """)
+
     conn.commit()
 
 # --------------------------------
@@ -89,7 +99,7 @@ def fetch_recent_requests():
         c.execute("""
             SELECT request_id, model_chosen, user_input, model_output
             FROM requests
-            WHERE model_output IS NOT NULL
+            WHERE model_output IS NOT NULL AND judged_at IS NULL
         """)
         rows = c.fetchall()
 
@@ -228,7 +238,19 @@ def run_loop():
                     """,
                     (model, weight, start_ts),
                 )
+
             conn.commit()
+
+        with get_conn() as conn:
+            c = conn.cursor()
+            for model, weight in weights.items():
+                c.execute(
+                    "INSERT INTO model_weights_history (model, weight, last_updated) VALUES (?, ?, ?)",
+                    (model, weight, start_ts)
+                )
+
+            conn.commit()
+
 
         LAST_RUN_TS = start_ts
         LAST_WEIGHTS = weights
