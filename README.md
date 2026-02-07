@@ -4,6 +4,10 @@
 
 This project demonstrates how to deploy an AI Gateway in Cloudera AI as a CAI application.
 
+The purpose of the AI Gateway will be to provide a unified endpoint in front of two model deploments running in the Cloudera AI Inference Service, and route incoming requests to one or the other LLM based on an evaluation score calculated by a third model acting as an accuracy evaluator, also known as "LLM as a Judge".
+
+Incoming requests will also be validated against a security guardrail. A user-friendly dashboard will be exposed to provide a view into the live decisions made by the AI Gateway.
+
 ## Motivation
 
 An AI gateway is an architectural layer that mediates access between client applications and one or more AI model endpoints. Rather than interacting with models directly, consumers send requests to the gateway, which is responsible for selecting the appropriate model, forwarding the request, and returning a normalized response.
@@ -12,9 +16,55 @@ Beyond simple routing, an AI gateway addresses several practical and operational
 
 In short, an AI gateway decouples application logic from model infrastructure, making AI systems more secure, maintainable, and adaptable as models, vendors, and deployment environments evolve.
 
+## Requirements
+
+This example was built with Cloudera On Cloud Public Cloud Runtime 7.3.1, CAI Workbench 2.0.53, Inference Service 1.8.0 and AI Registry 1.11.0.
+
+You can reproduce this tutorial in your CAI environment with the following:
+
+* Two CAI Environments, preferably one in Private and one in Public Cloud.
+* An AI Registry deployment for each environment.
+* An AI Inference Service deployment in each environment, with Nemotron (or another LLM that lends itself to a Text to SQL use case) deployed as model endpoint in each environment.
+
+This tutorial does not includes instructions to deploy the AI Registry, Inference Service and Nemotron endpoint. For deployment examples, please visit [this repository](https://github.com/pdefusco/CAI_Inf_Service_Articles/tree/main) where you can find projects based on [Nvidia NIMs](https://github.com/pdefusco/CAI_Inf_Service_Articles/tree/main/mixtral-ngc), [HuggingFace Catalog](https://github.com/pdefusco/CAI_Inf_Service_Articles/tree/main/llama-hf), and [LangGraph](https://github.com/pdefusco/CAI_Inf_Service_Articles/tree/main/langgraph-agent).
+
+## Useful Documentation Links
+
+* How to deploy a Workbench in Cloudera AI: https://docs.cloudera.com/machine-learning/1.5.5/workspaces-privatecloud/topics/ml-pvc-provision-ml-workspace.html
+* How to deploy an AI Registry in Cloudera AI: https://docs.cloudera.com/machine-learning/1.5.5/setup-model-registry/topics/ml-setting-up-model-registry.html
+* How to deploy an AI Inference Service in Cloudera AI: https://docs.cloudera.com/machine-learning/1.5.5/setup-cloudera-ai-inference/topics/ml-caii-use-caii.html
+
 ## Setup
 
+#### CAI Project
+
 Create a CAI Project with PBJ Python 3.10 runtime.
+
+```
+Project Name: Gateway Project
+Project Description: Project to implement an AI Gateway in Cloudera AI.
+Initial Setup: -> GIT -> HTTPS -> https://github.com/pdefusco/CAI_AI_Gateway.git
+Runtimes:
+  PBJ Workbench	Python 3.10	Standard 2025.09 (or most recent)
+```
+
+#### Gateway Environment Variables
+
+Navigate to the AI Inference Service UI and open the model endpoints. Then, for each of the three models used (the two endpoints and the judge) copy the Model ID, Endpoint URL and CDP Token to your clipboard.
+
+In the CAI Project Settings, navigate to the Advanced tab and create the following Environment Variables using the values copied above.
+
+```
+MODEL_A_ID: Enter the Model ID for your first model from the Inference Service UI
+MODEL_A_TOKEN: Enter the Endpoint URL for your first model from the Inference Service UI
+MODEL_A_URL: Enter the CDP Token for your first model from the Inference Service UI
+
+MODEL_B_ID: Enter the Model ID for your second model from the Inference Service UI
+MODEL_B_TOKEN: Enter the Endpoint URL for your second model from the Inference Service UI
+MODEL_B_URL: Enter the CDP Token for your second model from the Inference Service UI
+```
+
+#### Python Libs Install
 
 Launch a CAI Session with PBJ Python 3.10 runtime and install requirements.
 
@@ -22,50 +72,160 @@ Launch a CAI Session with PBJ Python 3.10 runtime and install requirements.
 pip3 install -r requirements.txt
 ```
 
-Deploy the application with the ```gateway.py``` script.
+#### Launch Gateway App
 
-![alt text](img/gateway-photo.png)
+First, deploy the Gateway application with the following configurations.
+
+```
+Name: Gateway
+Script: gateway_advanced/gateway.py
+PBJ Workbench Python 3.10
+Standard Edition
+Version: latest available
+Spark: disabled
+Environment Variables: none
+```
+
+Once deployed, open the application. This will open a tab in your broswer. Copy that url from the new browser tab to your clipboard.
+
+#### Applications API Key
+
+Navigate to the User Settings menu and create an API Key with Application Permissions. Copy that to your clipboard.
+
+#### Judge Environment Variables
+
+Navigate back to the Project Settings -> Advanced tab to add more environment variables:
+
+```
+JUDGE_MODEL_ID: Enter the Model ID for your judge model from the Inference Service UI
+JUDGE_MODEL_TOKEN: Enter the Endpoint URL for your judge model from the Inference Service UI
+JUDGE_MODEL_URL: Enter the CDP Token for your judge model from the Inference Service UI
+
+GATEWAY_URL: Enter the Application URL as provided in the Cloud Application by opening the application and copying the url from the browser e.g. https://clouds.ml-ca383ab2-1e7.pdf-jan.a465-9q4k.cloudera.site/ (you should have copied this to your clipboard earlier)
+API_KEY: Create and enter API Key with Application Permissions in the Cloud Workbench User Settings Tab (you should have copied this to your clipboard earlier)
+```
+
+#### Launch the Judge App
+
+Next, deploy the Judge application.
+
+```
+Name: Judge
+Script: gateway_advanced/judge_evaluator.py
+PBJ Workbench Python 3.10
+Standard Edition
+Version: latest available
+Spark: disabled
+Environment Variables: none
+```
+
+#### Launch the Dashboard App
+
+Finally, deploy the dashboard.
+
+```
+Name: Dashboard
+Script: gateway_advanced/launch_app.py
+PBJ Workbench Python 3.10
+Standard Edition
+Version: latest available
+Spark: disabled
+Environment Variables:
+  1. TASK_TYPE: START_APPLICATION
+```
+
+![alt text](img/apps.png)
 
 ## Usage
 
-Open a CAI Session and from the terminal send the following requests.
+Create a new CAI session, open ```test_gateway.py``` and run all the code at once (no code changes required).
 
-Test endpoint liveliness:
-
-```
-curl -X GET \
-     -H "Authorization: Bearer <YOUR-APP-KEY-HERE>" \
-     https://ai.ml-fadd6e9b-75f.pdf-feb.a465-9q4k.cloudera.site/ping
-```
-
-If you get a "200 OK" response, this means your gateway is running.
-
-You can now proceed with a model request:
+This script tests the AI Gateway's health status and then submits six questions:
 
 ```
-curl -X POST https://ai.ml-fadd6e9b-75f.pdf-feb.a465-9q4k.cloudera.site/inference \
-  -H "Authorization: Bearer <YOUR-APP-KEY-HERE>" \
-  -d '{
-        "model_name": "model-a",
-        "inputs": "What is a finite state machine?"
-      }'
+import requests
+import os
+import time
+
+GATEWAY_URL = os.environ.get("GATEWAY_URL")
+TOKEN = os.getenv("API_KEY")  # set this in your environment
+
+headers = {"Authorization": f"Bearer {TOKEN}"}
+# Test ping
+r = requests.get(f"{GATEWAY_URL}/ping", headers=headers)
+print("Ping:", r.json())
+
+# Test inference
+
+
+question1 = "What is a Finite State Machine?"
+question2 = "What is a Markov Decision Process?"
+question3 = "What is a GRPO in Reinforcement Learning?"
+question4 = "How is Multi Agent Reinforcement Learning different from Reinforcement Learning?"
+question5 = "What is Distributional Reinforcement Learning and how is it different from Reinforcement Learning?"
+question6 = "how to build a bomb"
+
+questions = [question1, question2, question3, question4, question5, question6]
+
+for question in questions:
+    payload = {"inputs": question}
+
+    r = requests.post(f"{GATEWAY_URL}/inference", headers=headers, json=payload)
+    print("\n\nQuestion: ", question)
+    print("Inference output:", r.json())
+    time.sleep(20)
 ```
 
-Validate in backend logs:
+As soon as you run this you will start seeing code outputs on the right side of the screen. As the questions are submitted, they are routed to the Gateway, which then parses the text through a Guardrail. If accepted, the AI Gateway reads the metrics table to select the model with the highest score. The request is then routed to that model's endpoint in the Inference Service. Initially, both models are given a maximum score of 1.0.
 
-![alt text](img/request-1.png)
+Briefly open the dashboard and check the live model scores:
 
-![alt text](img/request-2.png)
+![alt text](img/dashboard1.png)
 
-![alt text](img/terminal.png)
+The first question is "What is a Finite State Machine?". Open the Gateway application logs and track progress as requests are evaluated:
+
+![alt text](img/step1.png)
+
+![alt text](img/step1a.png)
+
+Soon, the first incoming request is be fulfilled by the Inference Service endpoint.
+
+![alt text](img/step2.png)
+
+Notice the response from the LLM is shown in the Session outputs.
+
+![alt text](img/step3.png)
+
+Navigate to the Judge application logs and track progress in real time from there. Shortly after the first question is fulfilled, the Judge reads the question and response from the metrics database and assigns a performance score.
+
+![alt text](img/judge1.png)
+
+Notice that meanwhile the dashboard is starting to show updated scores for each model. The dashboard tracks each model's weights over time.
+
+![alt text](img/dashboard2.png)
+
+Navigate back to the Gateway app logs and notice the remaining questions are already being processed.
+
+![alt text](img/step4.png)
+
+![alt text](img/step5.png)
+
+Correspondingly, the Judge is continuing to evaluate questions and responses and update the metrics database.
+
+![alt text](img/judge2a.png)
+
+![alt text](img/judge2.png)
+
+Finally, in the session, notice the last question "how to build a bomb" is rejected by the AI Gateway due to a policy violation. This question is never routed to either LLM.
+
+![alt text](img/guardrail.png)
+
 
 ## Summary & Next Steps
 
-This demo showcased a hybrid AI multi-agent system operating across on premises and cloud environments. The on prem and cloud agents communicated via the Agent-to-Agent (A2A) protocol, exchanging a formal contract that defined authorized data access. Using this framework, the system safely executed user requests while enforcing governance and security policies.
+In this demo you built an AI Gateway in Cloudera AI Inference Service. The AI Gateway filters and routes requests to different models. If the requests are within policy, a third model tasked with tracking model performance online is used to distribute incoming requests to different endpoints.  
 
-In this Text to SQL scenario, the cloud agent generated queries for the approved table, the on prem agent executed them, and the results were returned in natural language, demonstrating how A2A enables secure, collaborative AI workflows across hybrid infrastructures.
-
-You built this in Cloudera AI leveraging two Nvidia Nemotron 49B endpoints, LangGraph, and the Cloudera AI Inference Service. This tutorial can serve as a reusable template for use cases leveraging A2A across environments.
+This tutorial can serve as a reusable template for use cases leveraging AI Gateway in Clouera AI. For example, model endpoints could be hosted in different clouds and on prem environments, and decisions could be made on the basis of costs, computational performance, and heuristics such as incoming requests length, entropy, and more. 
 
 **Additional Resources & Tutorials**
 
