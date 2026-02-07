@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 import time
 
-DB_PATH = "/home/cdsw/requests.db"
+DB_PATH = "/tmp/requests.db"
 REFRESH_SECONDS = 10
 
 st.set_page_config(
@@ -24,7 +24,7 @@ count = st_autorefresh(interval=REFRESH_SECONDS * 1000, limit=None, key="dashboa
 # -----------------------------
 # Connect to SQLite
 # -----------------------------
-conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+conn = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)
 c = conn.cursor()
 
 # -----------------------------

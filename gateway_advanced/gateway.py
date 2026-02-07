@@ -50,11 +50,11 @@ WEIGHT_REFRESH_SECONDS = 30
 # --------------------------------
 # SQLite helper
 # --------------------------------
-DB_PATH = "/home/cdsw/requests.db"
+DB_PATH = "/tmp/requests.db"
 
 def get_conn():
     """Return a new SQLite connection with timeout for concurrency"""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)
     conn.execute("PRAGMA journal_mode=DELETE;")
     return conn
 
