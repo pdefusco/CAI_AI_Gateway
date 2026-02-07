@@ -1,7 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 import os
 import time
-import json
 import random
 import threading
 import logging
@@ -10,6 +9,7 @@ import sqlite3
 import uuid
 from typing import Dict
 import uvicorn
+import json
 
 # --------------------------------
 # Logging
@@ -44,7 +44,6 @@ MODELS = {
 # --------------------------------
 # Routing weights (dynamic)
 # --------------------------------
-WEIGHT_ARTIFACT_PATH = "/home/cdsw/model_weights.json"
 MODEL_WEIGHTS: Dict[str, float] = {k: 1.0 for k in MODELS}
 WEIGHT_REFRESH_SECONDS = 30
 
@@ -54,6 +53,8 @@ WEIGHT_REFRESH_SECONDS = 30
 DB_PATH = "requests.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 c = conn.cursor()
+
+# Requests table
 c.execute("""
 CREATE TABLE IF NOT EXISTS requests (
     request_id TEXT PRIMARY KEY,
@@ -63,22 +64,40 @@ CREATE TABLE IF NOT EXISTS requests (
     timestamp REAL DEFAULT (strftime('%s','now'))
 )
 """)
+
+# Model weights table
+c.execute("""
+CREATE TABLE IF NOT EXISTS model_weights (
+    model TEXT PRIMARY KEY,
+    weight REAL NOT NULL,
+    last_updated REAL DEFAULT (strftime('%s','now'))
+)
+""")
+conn.commit()
+
+# Initialize weights in DB if empty
+for model in MODELS:
+    c.execute(
+        "INSERT OR IGNORE INTO model_weights (model, weight) VALUES (?, ?)",
+        (model, 1.0)
+    )
 conn.commit()
 
 # --------------------------------
 # Weight loading and refreshing
 # --------------------------------
 def load_weights():
+    """
+    Load model weights from SQLite table.
+    """
     global MODEL_WEIGHTS
     try:
-        with open(WEIGHT_ARTIFACT_PATH, "r") as f:
-            data = json.load(f)
-            MODEL_WEIGHTS = data["weights"]
-            logger.info(f"Loaded model weights: {MODEL_WEIGHTS}")
-    except FileNotFoundError:
-        logger.warning("Weight artifact not found; using defaults")
+        c.execute("SELECT model, weight FROM model_weights")
+        rows = c.fetchall()
+        MODEL_WEIGHTS = {model: float(weight) for model, weight in rows}
+        logger.info(f"Loaded model weights from DB: {MODEL_WEIGHTS}")
     except Exception as e:
-        logger.error(f"Failed to load weights: {e}")
+        logger.error(f"Failed to load weights from DB: {e}")
 
 def weight_refresher():
     while True:

@@ -1,5 +1,4 @@
 import time
-import json
 import random
 import logging
 import requests
@@ -10,6 +9,7 @@ from collections import defaultdict
 from typing import Dict
 from fastapi import FastAPI
 import uvicorn
+import re
 
 # --------------------------------
 # Logging
@@ -24,7 +24,6 @@ logger.propagate = False
 # --------------------------------
 # Config
 # --------------------------------
-WEIGHT_ARTIFACT_PATH = "/home/cdsw/model_weights.json"
 EVAL_INTERVAL_SECONDS = 120
 
 JUDGE_MODEL = {
@@ -39,7 +38,7 @@ JUDGE_MODEL = {
 app = FastAPI()
 
 LAST_RUN_TS: float | None = None
-LAST_ARTIFACT: Dict | None = None
+LAST_WEIGHTS: Dict[str, float] | None = None
 
 # --------------------------------
 # SQLite setup
@@ -48,7 +47,7 @@ DB_PATH = "requests.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 c = conn.cursor()
 
-# Create table for storing scores if it doesn't exist
+# Scores table
 c.execute("""
 CREATE TABLE IF NOT EXISTS scores (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,15 +59,22 @@ CREATE TABLE IF NOT EXISTS scores (
 """)
 conn.commit()
 
-# Create table for storing model weights over time
+# Model weights table (same table the gateway reads)
 c.execute("""
 CREATE TABLE IF NOT EXISTS model_weights (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp REAL,
-    model TEXT,
-    weight REAL
+    model TEXT PRIMARY KEY,
+    weight REAL NOT NULL,
+    last_updated REAL DEFAULT (strftime('%s','now'))
 )
 """)
+conn.commit()
+
+# Initialize weights if empty
+for model in ["model-a", "model-b"]:
+    c.execute(
+        "INSERT OR IGNORE INTO model_weights (model, weight) VALUES (?, ?)",
+        (model, 1.0)
+    )
 conn.commit()
 
 # --------------------------------
@@ -96,25 +102,18 @@ def fetch_recent_requests():
     return samples
 
 # --------------------------------
-# Judge response
+# Judge scoring
 # --------------------------------
-import re
-
-logger = logging.getLogger("judge")
-
 def extract_score(score_text: str) -> float:
     """
     Extract a numeric score from the LLM judge output.
     Looks for a number between 0 and 1 in the string.
     """
-    # Find all numbers like 0.95, 1, 0.0 etc.
     match = re.findall(r"([0-1](?:\.\d+)?)", score_text)
     if match:
-        # Take the last number found (usually at the end)
         score = float(match[-1])
         return min(max(score, 0.0), 1.0)
     else:
-        # Fallback if no number is detected
         logger.warning(f"No numeric score found in judge response. Falling back to random score.")
         return random.uniform(0.0, 1.0)
 
@@ -153,17 +152,18 @@ def judge_response(user_input: str, model_output: str) -> float:
         )
         resp.raise_for_status()
         score_text = resp.json()["choices"][0]["message"]["content"]
-        score = extract_score(score_text)
-        return score
+        return extract_score(score_text)
     except Exception as e:
         logger.warning(f"Judge model call failed: {e}, falling back to random score")
         return random.uniform(0.0, 1.0)
-
 
 # --------------------------------
 # Compute weights
 # --------------------------------
 def compute_weights(scores: Dict[str, list[float]]) -> Dict[str, float]:
+    """
+    Compute weights as average scores, with a minimum of 0.1
+    """
     return {
         model: max(0.1, sum(vals) / len(vals))
         for model, vals in scores.items()
@@ -173,7 +173,7 @@ def compute_weights(scores: Dict[str, list[float]]) -> Dict[str, float]:
 # Judge loop
 # --------------------------------
 def run_loop():
-    global LAST_RUN_TS, LAST_ARTIFACT
+    global LAST_RUN_TS, LAST_WEIGHTS
 
     while True:
         logger.info("Starting evaluation cycle")
@@ -198,27 +198,18 @@ def run_loop():
         conn.commit()
 
         weights = compute_weights(scores)
-        artifact = {
-            "timestamp": start_ts,
-            "window": f"last_{EVAL_INTERVAL_SECONDS}s",
-            "weights": weights,
-            "avg_scores": {m: sum(v)/len(v) for m, v in scores.items()},
-            "sample_counts": {m: len(v) for m, v in scores.items()},
-        }
 
-        with open(WEIGHT_ARTIFACT_PATH, "w") as f:
-            json.dump(artifact, f, indent=2)
-
-        # Store model weights in SQLite
+        # Update weights table for gateway
         for model, weight in weights.items():
             c.execute(
-                "INSERT INTO model_weights (timestamp, model, weight) VALUES (?, ?, ?)",
-                (start_ts, model, weight)
+                "INSERT INTO model_weights (model, weight, last_updated) VALUES (?, ?, ?)"
+                "ON CONFLICT(model) DO UPDATE SET weight=excluded.weight, last_updated=excluded.last_updated",
+                (model, weight, start_ts)
             )
         conn.commit()
 
         LAST_RUN_TS = start_ts
-        LAST_ARTIFACT = artifact
+        LAST_WEIGHTS = weights
         logger.info(f"Published new weights: {weights}")
 
         time.sleep(EVAL_INTERVAL_SECONDS)
@@ -234,20 +225,12 @@ def ping():
 def status():
     return {
         "last_run_ts": LAST_RUN_TS,
-        "artifact_path": WEIGHT_ARTIFACT_PATH,
         "eval_interval_seconds": EVAL_INTERVAL_SECONDS,
     }
 
-@app.get("/artifact")
-def artifact():
-    if LAST_ARTIFACT:
-        return LAST_ARTIFACT
-
-    if not os.path.exists(WEIGHT_ARTIFACT_PATH):
-        return {"status": "no artifact yet"}
-
-    with open(WEIGHT_ARTIFACT_PATH) as f:
-        return json.load(f)
+@app.get("/weights")
+def weights():
+    return LAST_WEIGHTS or {}
 
 # --------------------------------
 # Server launcher
